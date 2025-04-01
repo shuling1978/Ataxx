@@ -13,13 +13,13 @@
 #include <cmath>
 #include <cstring>
 #include <queue>
-#include <bitset>
 using namespace std;
 
 int totalPieces = 0;          // 棋盘上棋子总数
 int totalPiecesMain = 0;      // 棋盘上棋子总数（主函数用）
 int currBotColor;             // 我所执子颜色（1为黑，-1为白，棋盘状态亦同）
-bitset<49> gridInfo;          // 用bitset表示棋盘状态，每个bit表示一个位置
+unsigned long long blackGrid; // 用位图表示黑棋位置
+unsigned long long whiteGrid; // 用位图表示白棋位置
 int blackPieceCount = 2, whitePieceCount = 2;
 static int delta[24][2] = {
     { 1,1 },{ 0,1 },{ -1,1 },{ -1,0 },
@@ -75,11 +75,11 @@ struct DynamicPositionWeight {
         // 降低远离现有棋子的位置权重
         for (int y = 0; y < 7; y++) {
             for (int x = 0; x < 7; x++) {
-                if (gridInfo[x * 7 + y] != 0) continue;
+                if ((blackGrid | whiteGrid) & (1ULL << (x * 7 + y))) continue;
                 bool isReachable = false;
                 for (int y0 = 0; y0 < 7 && !isReachable; y0++) {
                     for (int x0 = 0; x0 < 7; x0++) {
-                        if (gridInfo[x0 * 7 + y0] != color) continue;
+                        if (!((blackGrid & (1ULL << (x0 * 7 + y0))) ^ (whiteGrid & (1ULL << (x0 * 7 + y0))))) continue;
                         int dx = abs(x - x0);
                         int dy = abs(y - y0);
                         if (dx <= 2 && dy <= 2 && !(dx == 0 && dy == 0)) {
@@ -99,12 +99,12 @@ struct DynamicPositionWeight {
         // 中盘阶段：更具侵略性，优先翻转对手棋子
         for (int y = 0; y < 7; y++) {
             for (int x = 0; x < 7; x++) {
-                if (gridInfo[x * 7 + y] != 0) continue;
+                if ((blackGrid | whiteGrid) & (1ULL << (x * 7 + y))) continue;
                 int captureCount = 0;
                 for (int dir = 0; dir < 8; dir++) {
                     int nx = x + delta[dir][0];
                     int ny = y + delta[dir][1];
-                    if (inMap(nx, ny) && gridInfo[nx * 7 + ny] == -color) {
+                    if (inMap(nx, ny) && (whiteGrid & (1ULL << (nx * 7 + ny))) == (1ULL << (nx * 7 + ny)) ) {
                         captureCount++;
                     }
                 }
@@ -113,11 +113,11 @@ struct DynamicPositionWeight {
         }
         for (int y0 = 0; y0 < 7; y0++) {
             for (int x0 = 0; x0 < 7; x0++) {
-                if (gridInfo[x0 * 7 + y0] != -color) continue;
+                if ((whiteGrid & (1ULL << (x0 * 7 + y0))) == 0) continue;
                 for (int dir = 0; dir < 8; dir++) {
                     int x = x0 + delta[dir][0];
                     int y = y0 + delta[dir][1];
-                    if (inMap(x, y) && gridInfo[x * 7 + y] == 0) {
+                    if (inMap(x, y) && ((blackGrid | whiteGrid) & (1ULL << (x * 7 + y))) == 0) {
                         weights[x][y] += 8;
                     }
                 }
@@ -137,12 +137,12 @@ struct DynamicPositionWeight {
         weights[6][0] += 15; weights[6][6] += 15;
         for (int y = 0; y < 7; y++) {
             for (int x = 0; x < 7; x++) {
-                if (gridInfo[x * 7 + y] != 0) continue;
+                if ((blackGrid | whiteGrid) & (1ULL << (x * 7 + y))) continue;
                 int captureCount = 0;
                 for (int dir = 0; dir < 8; dir++) {
                     int nx = x + delta[dir][0];
                     int ny = y + delta[dir][1];
-                    if (inMap(nx, ny) && gridInfo[nx * 7 + ny] == -color) {
+                    if (inMap(nx, ny) && (whiteGrid & (1ULL << (nx * 7 + ny))) == (1ULL << (nx * 7 + ny))) {
                         captureCount++;
                     }
                 }
@@ -175,7 +175,7 @@ void DynamicPositionWeight::updateCaptureAndMoveEfficiency(int color)
     {
         for (int x = 0; x < 7; x++)
         {
-            if (gridInfo[x * 7 + y] != 0) continue;
+            if ((blackGrid | whiteGrid) & (1ULL << (x * 7 + y))) continue;
 
             int maxCaptureWithCopy = 0;
             int maxCaptureWithJump = 0;
@@ -185,9 +185,10 @@ void DynamicPositionWeight::updateCaptureAndMoveEfficiency(int color)
             // 检查所有可能的来源位置
             for (int y0 = 0; y0 < 7; y0++)
             {
-                for (int x0 = 0; y0 < 7; y0++)
+                for (int x0 = 0; x0 < 7; x0++)
                 {
-                    if (gridInfo[x0 * 7 + y0] != color) continue;
+                    if ((currBotColor == 1 && (blackGrid & (1ULL << (x0 * 7 + y0))) == 0) ||
+                        (currBotColor == -1 && (whiteGrid & (1ULL << (x0 * 7 + y0))) == 0)) continue;
 
                     int dx = abs(x0 - x);
                     int dy = abs(y0 - y);
@@ -200,7 +201,7 @@ void DynamicPositionWeight::updateCaptureAndMoveEfficiency(int color)
                         {
                             int nx = x + delta[dir][0];
                             int ny = y + delta[dir][1];
-                            if (inMap(nx, ny) && gridInfo[nx * 7 + ny] == -color)
+                            if (inMap(nx, ny) && (whiteGrid & (1ULL << (nx * 7 + ny))) == (1ULL << (nx * 7 + ny)))
                                 captures++;
                         }
                         maxCaptureWithCopy = max(maxCaptureWithCopy, captures);
@@ -213,7 +214,7 @@ void DynamicPositionWeight::updateCaptureAndMoveEfficiency(int color)
                         {
                             int nx = x + delta[dir][0];
                             int ny = y + delta[dir][1];
-                            if (inMap(nx, ny) && gridInfo[nx * 7 + ny] == -color)
+                            if (inMap(nx, ny) && (whiteGrid & (1ULL << (nx * 7 + ny))) == (1ULL << (nx * 7 + ny)))
                                 captures++;
                         }
                         maxCaptureWithJump = max(maxCaptureWithJump, captures);
@@ -273,26 +274,28 @@ bool ProcStep(int x0, int y0, int x1, int y1, int color, bool simulate = false)
     if (color == 0) return false;
     if (x1 == -1) return true;
     if (!inMap(x0, y0) || !inMap(x1, y1)) return false;
-    if (gridInfo[x0 * 7 + y0] != color) return false;
+    if ((currBotColor == 1 && (blackGrid & (1ULL << (x0 * 7 + y0))) == 0) ||
+        (currBotColor == -1 && (whiteGrid & (1ULL << (x0 * 7 + y0))) == 0)) return false;
 
     int dx = abs(x0 - x1), dy = abs(y0 - y1);
     if ((dx == 0 && dy == 0) || dx > 2 || dy > 2) return false; // 检查跳跃或复制范围
-    if (gridInfo[x1 * 7 + y1] != 0) return false; // 检查目标位置是否为空
+    if ((blackGrid | whiteGrid) & (1ULL << (x1 * 7 + y1))) return false; // 检查目标位置是否为空
 
-    bitset<49> originalGrid;
-    int originalBlack = blackPieceCount, originalWhite = whitePieceCount;
+    unsigned long long originalBlack = blackGrid, originalWhite = whiteGrid;
+    int originalBlackCount = blackPieceCount, originalWhiteCount = whitePieceCount;
     if (simulate) {
-        originalGrid = gridInfo;
+        originalBlack = blackGrid;
+        originalWhite = whiteGrid;
     }
 
     if (dx == 2 || dy == 2)
-        gridInfo[x0 * 7 + y0] = 0;
+        blackGrid &= ~(1ULL << (x0 * 7 + y0));
     else if (color == 1)
         blackPieceCount++;
     else
         whitePieceCount++;
 
-    gridInfo[x1 * 7 + y1] = color;
+    blackGrid |= 1ULL << (x1 * 7 + y1);
     int currCount = 0;
     for (int dir = 0; dir < 8; dir++)
     {
@@ -300,9 +303,9 @@ bool ProcStep(int x0, int y0, int x1, int y1, int color, bool simulate = false)
         int y = y1 + delta[dir][1];
         if (!inMap(x, y))
             continue;
-        if (gridInfo[x * 7 + y] == -color) {
+        if (blackGrid & (1ULL << (x * 7 + y))) {
             currCount++;
-            gridInfo[x * 7 + y] = color;
+            blackGrid |= 1ULL << (x * 7 + y);
         }
     }
 
@@ -318,14 +321,13 @@ bool ProcStep(int x0, int y0, int x1, int y1, int color, bool simulate = false)
     }
 
     if (simulate) {
-        gridInfo = originalGrid;
-        blackPieceCount = originalBlack;
-        whitePieceCount = originalWhite;
+        blackGrid = originalBlack;
+        whitePieceCount = originalWhiteCount;
+        blackPieceCount = originalBlackCount;
     }
 
     return true;
 }
-
 
 // 改进的增强连通性评估 - 考虑几何多样性
 int countConnectedPieces(int color)
@@ -341,7 +343,7 @@ int countConnectedPieces(int color)
     {
         for (int x = 0; y < 7; y++)
         {
-            if (gridInfo[x * 7 + y] != color)
+            if ((blackGrid & (1ULL << (x * 7 + y))) != color)
                 continue;
             bool hasDirection[8] = {false};
             int dirCount = 0;
@@ -349,7 +351,7 @@ int countConnectedPieces(int color)
             {
                 int nx = x + delta[dir][0];
                 int ny = y + delta[dir][1];
-                if (inMap(nx, ny) && gridInfo[nx * 7 + ny] == color)
+                if (inMap(nx, ny) && (blackGrid & (1ULL << (nx * 7 + ny))) == color)
                 {
                     hasDirection[dir] = true;
                     dirCount++;
@@ -375,49 +377,49 @@ int countConnectedPieces(int color)
     }
 
     // 使用BFS计算连通区域得分
-for (int y = 0; y < 7; y++)
-{
-    for (int x = 0; x < 7; x++)
+    for (int y = 0; y < 7; y++)
     {
-        if (gridInfo[x * 7 + y] == color && !visited[x][y])
+        for (int x = 0; x < 7; x++)
         {
-            int regionSize = 0;
-            int regionGeometricScore = 0;
-            int regionDirectionScore = 0;
-            queue<pair<int, int>> q;
-            q.push({x, y});
-            visited[x][y] = true;
-            regionSize++;
-            regionGeometricScore += geometricBonus[x][y];
-            regionDirectionScore += directionDiversity[x][y];
-
-            while (!q.empty())
+            if ((blackGrid & (1ULL << (x * 7 + y))) == color && !visited[x][y])
             {
-                auto curr = q.front();
-                q.pop();
-                for (int dir = 0; dir < 8; dir++)
+                int regionSize = 0;
+                int regionGeometricScore = 0;
+                int regionDirectionScore = 0;
+                queue<pair<int, int>> q;
+                q.push({x, y});
+                visited[x][y] = true;
+                regionSize++;
+                regionGeometricScore += geometricBonus[x][y];
+                regionDirectionScore += directionDiversity[x][y];
+
+                while (!q.empty())
                 {
-                    int nx = curr.first + delta[dir][0];
-                    int ny = curr.second + delta[dir][1];
-                    if (inMap(nx, ny) && gridInfo[nx * 7 + ny] == color && !visited[nx][ny])
+                    auto curr = q.front();
+                    q.pop();
+                    for (int dir = 0; dir < 8; dir++)
                     {
-                        visited[nx][ny] = true;
-                        q.push({nx, ny});
-                        regionSize++;
-                        regionGeometricScore += geometricBonus[nx][ny];
-                        regionDirectionScore += directionDiversity[nx][ny];
+                        int nx = curr.first + delta[dir][0];
+                        int ny = curr.second + delta[dir][1];
+                        if (inMap(nx, ny) && (blackGrid & (1ULL << (nx * 7 + ny))) == color && !visited[nx][ny])
+                        {
+                            visited[nx][ny] = true;
+                            q.push({nx, ny});
+                            regionSize++;
+                            regionGeometricScore += geometricBonus[nx][ny];
+                            regionDirectionScore += directionDiversity[nx][ny];
+                        }
                     }
                 }
+                               int regionScore = regionSize * regionSize;
+                regionScore += regionGeometricScore * 2;
+                regionScore += (regionDirectionScore * 3) / regionSize;
+                totalConnectivityScore += regionScore;
             }
-            int regionScore = regionSize * regionSize;
-            regionScore += regionGeometricScore * 2;
-            regionScore += (regionDirectionScore * 3) / regionSize;
-            totalConnectivityScore += regionScore;
         }
     }
-}
 
-return totalConnectivityScore;
+    return totalConnectivityScore;
 }
 
 // 计算对手潜在威胁
@@ -429,20 +431,22 @@ int countOpponentThreats(int color)
     {
         for (int x0 = 0; x0 < 7; x0++)
         {
-            if (gridInfo[x0 * 7 + y0] != opponentColor)
+            if ((currBotColor == 1 && (whiteGrid & (1ULL << (x0 * 7 + y0))) == 0) ||
+                (currBotColor == -1 && (blackGrid & (1ULL << (x0 * 7 + y0))) == 0))
                 continue;
             for (int dir = 0; dir < 24; dir++)
             {
                 int x1 = x0 + delta[dir][0];
                 int y1 = y0 + delta[dir][1];
-                if (!inMap(x1, y1) || gridInfo[x1 * 7 + y1] != 0)
+                if (!inMap(x1, y1) || ((blackGrid | whiteGrid) & (1ULL << (x1 * 7 + y1))) != 0)
                     continue;
                 int captureCount = 0;
                 for (int adjDir = 0; adjDir < 8; adjDir++)
                 {
                     int ax = x1 + delta[adjDir][0];
                     int ay = y1 + delta[adjDir][1];
-                    if (inMap(ax, ay) && gridInfo[ax * 7 + ay] == color)
+                    if (inMap(ax, ay) && ((currBotColor == 1 && (blackGrid & (1ULL << (ax * 7 + ay))) != 0) ||
+                                          (currBotColor == -1 && (whiteGrid & (1ULL << (ax * 7 + ay))) != 0)))
                         captureCount++;
                 }
                 threatCount += captureCount * captureCount;
@@ -464,7 +468,8 @@ int evaluateMoveType(int x0, int y0, int x1, int y1, int color)
     {
         int nx = x1 + delta[dir][0];
         int ny = y1 + delta[dir][1];
-        if (inMap(nx, ny) && gridInfo[nx * 7 + ny] == -color)
+        if (inMap(nx, ny) && ((currBotColor == 1 && (whiteGrid & (1ULL << (nx * 7 + ny))) != 0) ||
+                              (currBotColor == -1 && (blackGrid & (1ULL << (nx * 7 + ny))) != 0)))
             captureCount++;
     }
 
@@ -501,7 +506,8 @@ int evaluateMoveType(int x0, int y0, int x1, int y1, int color)
     {
         int nx = x1 + delta[dir][0];
         int ny = y1 + delta[dir][1];
-        if (inMap(nx, ny) && (gridInfo[nx * 7 + ny] == color || (nx == x0 && ny == y0)))
+        if (inMap(nx, ny) && ((currBotColor == 1 && (blackGrid & (1ULL << (nx * 7 + ny))) != 0) ||
+                              (currBotColor == -1 && (whiteGrid & (1ULL << (nx * 7 + ny))) != 0)))
             hasDirection[dir] = true;
     }
     for (int i = 0; i < 8; i++)
@@ -517,20 +523,22 @@ int evaluateMoveType(int x0, int y0, int x1, int y1, int color)
 
     return moveScore;
 }
+
 // 计算某一方的合法棋步数量
 int numLegalMoves(int color) {
     int legalMoves = 0;
 
     for (int y0 = 0; y0 < 7; y0++) {
         for (int x0 = 0; x0 < 7; x0++) {
-            if (gridInfo[x0 * 7 + y0] != color) continue;
+            if ((currBotColor == 1 && (blackGrid & (1ULL << (x0 * 7 + y0))) == 0) ||
+                (currBotColor == -1 && (whiteGrid & (1ULL << (x0 * 7 + y0))) == 0)) continue;
 
             for (int dir = 0; dir < 24; dir++) {
                 int x1 = x0 + delta[dir][0];
                 int y1 = y0 + delta[dir][1];
 
                 // 检查目标位置是否在地图内且为空
-                if (inMap(x1, y1) && gridInfo[x1 * 7 + y1] == 0) {
+                if (inMap(x1, y1) && ((blackGrid | whiteGrid) & (1ULL << (x1 * 7 + y1))) == 0) {
                     legalMoves++;
                 }
             }
@@ -539,6 +547,7 @@ int numLegalMoves(int color) {
 
     return legalMoves;
 }
+
 // 计算某一方的稳定棋子数量
 int countStablePieces(int color) {
     bool stable[7][7] = {false}; // 标记棋子是否稳定
@@ -548,7 +557,8 @@ int countStablePieces(int color) {
     const int corners[4][2] = {{0, 0}, {0, 6}, {6, 0}, {6, 6}};
     for (int i = 0; i < 4; i++) {
         int x = corners[i][0], y = corners[i][1];
-        if (gridInfo[x * 7 + y] == color) {
+        if ((currBotColor == 1 && (blackGrid & (1ULL << (x * 7 + y))) != 0) ||
+            (currBotColor == -1 && (whiteGrid & (1ULL << (x * 7 + y))) != 0)) {
             stable[x][y] = true;
             stableCount++;
         }
@@ -557,22 +567,26 @@ int countStablePieces(int color) {
     // 检查边缘的稳定性
     for (int i = 0; i < 7; i++) {
         // 上边缘
-        if (gridInfo[i] == color && (i == 0 || stable[i - 1][0])) {
+        if ((currBotColor == 1 && (blackGrid & (1ULL << i)) != 0 && (i == 0 || stable[i - 1][0])) ||
+            (currBotColor == -1 && (whiteGrid & (1ULL << i)) != 0 && (i == 0 || stable[i - 1][0]))) {
             stable[i][0] = true;
             stableCount++;
         }
         // 下边缘
-        if (gridInfo[i + 6 * 7] == color && (i == 0 || stable[i - 1][6])) {
+        if ((currBotColor == 1 && (blackGrid & (1ULL << (i + 6 * 7))) != 0 && (i == 0 || stable[i - 1][6])) ||
+            (currBotColor == -1 && (whiteGrid & (1ULL << (i + 6 * 7))) != 0 && (i == 0 || stable[i - 1][6]))) {
             stable[i][6] = true;
             stableCount++;
         }
         // 左边缘
-        if (gridInfo[0 * 7 + i] == color && (i == 0 || stable[0][i - 1])) {
+        if ((currBotColor == 1 && (blackGrid & (1ULL << (0 * 7 + i))) != 0 && (i == 0 || stable[0][i - 1])) ||
+            (currBotColor == -1 && (whiteGrid & (1ULL << (0 * 7 + i))) != 0 && (i == 0 || stable[0][i - 1]))) {
             stable[0][i] = true;
             stableCount++;
         }
         // 右边缘
-        if (gridInfo[6 * 7 + i] == color && (i == 0 || stable[6][i - 1])) {
+        if ((currBotColor == 1 && (blackGrid & (1ULL << (6 * 7 + i))) != 0 && (i == 0 || stable[6][i - 1])) ||
+            (currBotColor == -1 && (whiteGrid & (1ULL << (6 * 7 + i))) != 0 && (i == 0 || stable[6][i - 1]))) {
             stable[6][i] = true;
             stableCount++;
         }
@@ -581,12 +595,14 @@ int countStablePieces(int color) {
     // 检查内部棋子的稳定性
     for (int y = 1; y < 6; y++) {
         for (int x = 1; x < 6; x++) {
-            if (gridInfo[x * 7 + y] == color) {
+            if ((currBotColor == 1 && (blackGrid & (1ULL << (x * 7 + y))) != 0) ||
+                (currBotColor == -1 && (whiteGrid & (1ULL << (x * 7 + y))) != 0)) {
                 bool isStable = true;
                 for (int dir = 0; dir < 8; dir++) {
                     int nx = x + delta[dir][0];
                     int ny = y + delta[dir][1];
-                    if (inMap(nx, ny) && gridInfo[nx * 7 + ny] != color) {
+                    if (inMap(nx, ny) && ((currBotColor == 1 && (blackGrid & (1ULL << (nx * 7 + ny))) == 0) ||
+                                          (currBotColor == -1 && (whiteGrid & (1ULL << (nx * 7 + ny))) == 0))) {
                         isStable = false;
                         break;
                     }
@@ -601,6 +617,7 @@ int countStablePieces(int color) {
 
     return stableCount;
 }
+
 // 改进后的增强评估函数，整合多项改进
 int Evaluate()
 {
@@ -634,18 +651,22 @@ int Evaluate()
     int cornerScore = 0;
     for (int i = 0; i < 4; i++) {
         int x = corners[i][0], y = corners[i][1];
-        if (gridInfo[x * 7 + y] == currBotColor)
+        if ((currBotColor == 1 && (blackGrid & (1ULL << (x * 7 + y))) != 0) ||
+            (currBotColor == -1 && (whiteGrid & (1ULL << (x * 7 + y))) != 0))
             cornerScore += 100;
-        else if (gridInfo[x * 7 + y] == -currBotColor)
+        else if ((currBotColor == 1 && (whiteGrid & (1ULL << (x * 7 + y))) != 0) ||
+                 (currBotColor == -1 && (blackGrid & (1ULL << (x * 7 + y))) != 0))
             cornerScore -= 100;
     }
     score += cornerScore;
 
     for (int y = 0; y < 7; y++) {
         for (int x = 0; x < 7; x++) {
-            if (gridInfo[x * 7 + y] == currBotColor)
+            if ((currBotColor == 1 && (blackGrid & (1ULL << (x * 7 + y))) != 0) ||
+                (currBotColor == -1 && (whiteGrid & (1ULL << (x * 7 + y))) != 0))
                 score += dynamicWeights.weights[x][y];
-            else if (gridInfo[x * 7 + y] == -currBotColor)
+            else if ((currBotColor == 1 && (whiteGrid & (1ULL << (x * 7 + y))) != 0) ||
+                     (currBotColor == -1 && (blackGrid & (1ULL << (x * 7 + y))) != 0))
                 score -= dynamicWeights.weights[x][y];
         }
     }
@@ -681,26 +702,28 @@ bool IsGameOver()
     {
         for (int x0 = 0; x0 < 7; x0++)
         {
-            if (gridInfo[x0 * 7 + y0] == 1)
+            if ((currBotColor == 1 && (blackGrid & (1ULL << (x0 * 7 + y0))) != 0) ||
+                (currBotColor == -1 && (whiteGrid & (1ULL << (x0 * 7 + y0))) != 0))
             {
                 for (int dir = 0; dir < 24; dir++)
                 {
                     int x1 = x0 + delta[dir][0];
                     int y1 = y0 + delta[dir][1];
-                    if (inMap(x1, y1) && gridInfo[x1 * 7 + y1] == 0)
+                    if (inMap(x1, y1) && ((blackGrid | whiteGrid) & (1ULL << (x1 * 7 + y1))) == 0)
                     {
                         blackCanMove = true;
                         break;
                     }
                 }
             }
-            else if (gridInfo[x0 * 7 + y0] == -1)
+            else if ((currBotColor == -1 && (blackGrid & (1ULL << (x0 * 7 + y0))) != 0) ||
+                     (currBotColor == 1 && (whiteGrid & (1ULL << (x0 * 7 + y0))) != 0))
             {
                 for (int dir = 0; dir < 24; dir++)
                 {
                     int x1 = x0 + delta[dir][0];
                     int y1 = y0 + delta[dir][1];
-                    if (inMap(x1, y1) && gridInfo[x1 * 7 + y1] == 0)
+                    if (inMap(x1, y1) && ((blackGrid | whiteGrid) & (1ULL << (x1 * 7 + y1))) == 0)
                     {
                         whiteCanMove = true;
                         break;
@@ -713,10 +736,12 @@ bool IsGameOver()
     }
     return true;
 }
+
 int MonteCarloSimulation(int startX, int startY, int resultX, int resultY, int simulations = 100)
 {
-    bitset<49> originalGrid = gridInfo;
-    int originalBlack = blackPieceCount, originalWhite = whitePieceCount;
+    unsigned long long originalBlack = blackGrid;
+    unsigned long long originalWhite = whiteGrid;
+    int originalBlackCount = blackPieceCount, originalWhiteCount = whitePieceCount;
     int wins=0;
     // 执行当前走法
     if (!ProcStep(startX, startY, resultX, resultY, currBotColor)) {
@@ -739,8 +764,9 @@ int MonteCarloSimulation(int startX, int startY, int resultX, int resultY, int s
 
     for (int i = 0; i < simulations; i++)
     {
-        bitset<49> simGrid = gridInfo;
-        int simBlack = blackPieceCount, simWhite = whitePieceCount;
+        unsigned long long simBlack = blackGrid;
+        unsigned long long simWhite = whiteGrid;
+        int simBlackCount = blackPieceCount, simWhiteCount = whitePieceCount;
 
         int currentColor = -currBotColor;
         bool gameOver = false;
@@ -755,76 +781,50 @@ int MonteCarloSimulation(int startX, int startY, int resultX, int resultY, int s
             {
                 for (int x0 = 0; x0 < 7; x0++)
                 {
-                    if (simGrid[x0 * 7 + y0] == currentColor)
+                    if ((currentColor == 1 && (simBlack & (1ULL << (x0 * 7 + y0))) != 0) ||
+                        (currentColor == -1 && (simWhite & (1ULL << (x0 * 7 + y0))) != 0))
                     {
-                        for (int dir = 0; dir < 24; dir++)
-                        {
-                            int x1 = x0 + delta[dir][0];
-                            int y1 = y0 + delta[dir][1];
-                            if (inMap(x1, y1) && simGrid[x1 * 7 + y1] == 0)
-                            {
-                                bitset<49> tempGrid = simGrid;
-                                int tempBlack = simBlack, tempWhite = simWhite;
+                      for (int dir2 = 0; dir2 < 8; dir2++)
+{
+    int x = x0 + delta[dir2][0];
+    int y = y0 + delta[dir2][1];
+    if (!inMap(x, y))
+        continue;
 
-                                int dx = abs(x0 - x1), dy = abs(y0 - y1);
-                                if (dx == 2 || dy == 2)
-                                    tempGrid[x0 * 7 + y0] = 0;
-                                else if (currentColor == 1)
-                                    tempBlack++;
-                                else
-                                    tempWhite++;
+    if (((blackGrid & (1ULL << (x * 7 + y))) && currentColor != 1) ||
+        ((whiteGrid & (1ULL << (x * 7 + y))) && currentColor != -1) ||
+        !((blackGrid | whiteGrid) & (1ULL << (x * 7 + y))))
+        return false; // 位置为空
 
-                                tempGrid[x1 * 7 + y1] = currentColor;
-                                int currCount = 0;
+    if ((tempBlack & (1ULL << (x * 7 + y))) == -currentColor)
+    {
+        currCount++;
+        tempBlack |= 1ULL << (x * 7 + y);
+    }
+}
 
-                                for (int dir2 = 0; dir2 < 8; dir2++)
-                                {
-                                    int x = x1 + delta[dir2][0];
-                                    int y = y1 + delta[dir2][1];
-                                    if (!inMap(x, y))
-                                        continue;
-                                    if (tempGrid[x * 7 + y] == -currentColor)
-                                    {
-                                        currCount++;
-                                        tempGrid[x * 7 + y] = currentColor;
-                                    }
-                                }
+if (currCount != 0)
+{
+    if (currentColor == 1)
+    {
+        tempBlackCount += currCount;
+        tempWhiteCount -= currCount;
+    }
+    else
+    {
+        tempWhiteCount += currCount;
+        tempBlackCount -= currCount;
+    }
+}
 
-                                if (currCount != 0)
-                                {
-                                    if (currentColor == 1)
-                                    {
-                                        tempBlack += currCount;
-                                        tempWhite -= currCount;
-                                    }
-                                    else
-                                    {
-                                        tempWhite += currCount;
-                                        tempBlack -= currCount;
-                                    }
-                                }
+int score = 0;
+score += 5 * (currentColor == 1 ? (tempBlackCount - tempWhiteCount) : (tempWhiteCount - tempBlackCount));
+score += POSITION_WEIGHT[x1][y1] * (currentColor == currBotColor ? 1 : -1);
 
-                                int score = 0;
-                                score += 5 * (currentColor == 1 ? (tempBlack - tempWhite) : (tempWhite - tempBlack));
-                                score += POSITION_WEIGHT[x1][y1] * (currentColor == currBotColor ? 1 : -1);
+moves.push_back({{x0, y0}, {x1, y1}});
+moveScores.push_back(score);
 
-                                moves.push_back({{x0, y0}, {x1, y1}});
-                                moveScores.push_back(score);
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (moves.empty())
-            {
-                currentColor = -currentColor;
-                gameOver = IsGameOver();
-                steps++;
-                continue;
-            }
-
-            int choice = 0;
+                                                                 int choice = 0;
             if (rand() % 10 < 8)
             {
                 if (currentColor == currBotColor)
@@ -846,13 +846,13 @@ int MonteCarloSimulation(int startX, int startY, int resultX, int resultY, int s
             int dx = abs(move.first.first - move.second.first);
             int dy = abs(move.first.second - move.second.second);
             if (dx == 2 || dy == 2)
-                simGrid[move.first.first * 7 + move.first.second] = 0;
+                simBlack &= ~(1ULL << (move.first.first * 7 + move.first.second));
             else if (currentColor == 1)
-                simBlack++;
+                simBlackCount++;
             else
-                simWhite++;
+                simWhiteCount++;
 
-            simGrid[move.second.first * 7 + move.second.second] = currentColor;
+            simBlack |= 1ULL << (move.second.first * 7 + move.second.second);
             int captureCount = 0;
 
             for (int adjDir = 0; adjDir < 8; adjDir++)
@@ -861,10 +861,10 @@ int MonteCarloSimulation(int startX, int startY, int resultX, int resultY, int s
                 int y = move.second.second + delta[adjDir][1];
                 if (!inMap(x, y))
                     continue;
-                if (simGrid[x * 7 + y] == -currentColor)
+                if ((simBlack & (1ULL << (x * 7 + y))) == -currentColor)
                 {
                     captureCount++;
-                    simGrid[x * 7 + y] = currentColor;
+                    simBlack |= 1ULL << (x * 7 + y);
                 }
             }
 
@@ -872,29 +872,30 @@ int MonteCarloSimulation(int startX, int startY, int resultX, int resultY, int s
             {
                 if (currentColor == 1)
                 {
-                    simBlack += captureCount;
-                    simWhite -= captureCount;
+                    simBlackCount += captureCount;
+                    simWhiteCount -= captureCount;
                 }
                 else
                 {
-                    simWhite += captureCount;
-                    simBlack -= captureCount;
+                    simWhiteCount += captureCount;
+                    simBlackCount -= captureCount;
                 }
             }
 
             currentColor = -currentColor;
             steps++;
-            gameOver = (simBlack == 0 || simWhite == 0) || (steps >= maxDepth);
+            gameOver = (simBlackCount == 0 || simWhiteCount == 0) || (steps >= maxDepth);
         }
-        int finalScore = (currBotColor == 1) ? (simBlack - simWhite) : (simWhite - simBlack);
+        int finalScore = (currBotColor == 1) ? (simBlackCount - simWhiteCount) : (simWhiteCount - simBlackCount);
         if (finalScore > 0)
             wins++;
     }
 
     // 恢复原始状态
-    gridInfo = originalGrid;
-    blackPieceCount = originalBlack;
-    whitePieceCount = originalWhite;
+    blackGrid = originalBlack;
+    whiteGrid = originalWhite;
+    blackPieceCount = originalBlackCount;
+    whitePieceCount = originalWhiteCount;
 
     totalPieces = blackPieceCount + whitePieceCount;
     float evalWeight = 0.4;
@@ -917,8 +918,8 @@ int main()
     dynamicWeights.initialize();
 
     int x0, y0, x1, y1;
-    gridInfo[0 * 7 + 0] = gridInfo[6 * 7 + 6] = 1;   // |黑|白|
-    gridInfo[6 * 7 + 0] = gridInfo[0 * 7 + 6] = -1;  // |白|黑|
+    blackGrid = (1ULL << (0 * 7 + 0)) | (1ULL << (6 * 7 + 6));   // |黑|白|
+    whiteGrid = (1ULL << (6 * 7 + 0)) | (1ULL << (0 * 7 + 6));   // |白|黑|
 
     int turnID;
     currBotColor = -1; // 第一回合收到坐标为 -1, -1 表示我是黑方
@@ -952,14 +953,15 @@ int main()
     {
         for (int x0 = 0; x0 < 7; x0++)
         {
-            if (gridInfo[x0 * 7 + y0] != currBotColor)
+            if ((currBotColor == 1 && (blackGrid & (1ULL << (x0 * 7 + y0))) == 0) ||
+                (currBotColor == -1 && (whiteGrid & (1ULL << (x0 * 7 + y0))) == 0))
                 continue;
             for (int dir = 0; dir < 24; dir++)
             {
                 x1 = x0 + delta[dir][0];
                 y1 = y0 + delta[dir][1];
-                  if (!inMap(x1, y1)) continue;
-                if (gridInfo[x1 * 7 + y1] != 0) continue;
+                if (!inMap(x1, y1)) continue;
+                if ((blackGrid | whiteGrid) & (1ULL << (x1 * 7 + y1))) continue;
                 moves.push_back({{x0, y0}, {x1, y1}});
             }
         }
@@ -974,15 +976,17 @@ int main()
         for (size_t i = 0; i < moves.size(); i++)
         {
             auto &move = moves[i];
-            bitset<49> tempGrid = gridInfo;
-            int tempBlack = blackPieceCount, tempWhite = whitePieceCount;
+            unsigned long long tempBlack = blackGrid;
+            unsigned long long tempWhite = whiteGrid;
+            int tempBlackCount = blackPieceCount, tempWhiteCount = whitePieceCount;
 
             ProcStep(move.first.first, move.first.second, move.second.first, move.second.second, currBotColor, true);
             moveScores[i] = {Evaluate(), (int)i};
 
-            gridInfo = tempGrid;
-            blackPieceCount = tempBlack;
-            whitePieceCount = tempWhite;
+            blackGrid = tempBlack;
+            whiteGrid = tempWhite;
+            blackPieceCount = tempBlackCount;
+            whitePieceCount = tempWhiteCount;
         }
 
         sort(moveScores.begin(), moveScores.end(), greater<pair<int, int>>());
